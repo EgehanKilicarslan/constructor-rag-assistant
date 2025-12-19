@@ -28,7 +28,7 @@ ALLOWED_SCOPES="go|py|ui|proto|ops|docs"
 
 # Regex: ^(type)\((scope)\): (.+)
 # Only allows listed ones.
-REGEX="^(${ALLOWED_TYPES})\((${ALLOWED_SCOPES})\): .+$"
+REGEX="^(${ALLOWED_TYPES})\((${ALLOWED_SCOPES})(,(${ALLOWED_SCOPES}))*\): .+$"
 
 # ---------------------------------------------------------
 # CONTROL MECHANISM
