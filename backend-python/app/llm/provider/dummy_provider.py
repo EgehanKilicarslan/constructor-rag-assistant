@@ -1,10 +1,10 @@
 from typing import Dict, List
 
-from .base import LLMProvider
+from ..base import LLMProvider
 
 
 class DummyProvider(LLMProvider):
-    def generate_response(
+    async def generate_response(
         self, query: str, context_docs: List[str], history: List[Dict[str, str]]
     ) -> str:
         return (

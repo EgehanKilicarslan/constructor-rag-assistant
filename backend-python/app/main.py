@@ -1,7 +1,6 @@
+import asyncio
 import os
 import sys
-import time
-from concurrent import futures
 
 import grpc
 
@@ -12,23 +11,20 @@ sys.path.append(os.path.join(parent_dir, "pb"))
 
 from pb import rag_service_pb2_grpc  # noqa: E402
 
-# Containers and Services
 from app.containers import Container  # noqa: E402
 
 
-def serve():
+async def serve():
+    # 1. Create DI Container
     container = Container()
 
-    # If i needed, load configuration from a file or environment variables
-    # container.config.from_yaml("config.yml")
+    # 2. Resolve service
+    rag_service_instance = container.rag_service()
 
-    # 2. Request the service from the container (Resolution)
-    rag_service_instance = container.llm_service()
+    # 3. Start gRPC Server in async mode
+    server = grpc.aio.server()
 
-    # 3. Start the gRPC Server
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-
-    # Register the created instance to the server
+    # Save service
     rag_service_pb2_grpc.add_RagServiceServicer_to_server(rag_service_instance, server)
 
     port = "50051"
@@ -37,13 +33,14 @@ def serve():
     print("🚀 [Python] AI Service Started (DI Enabled)!")
     print(f"   -> Active LLM: {rag_service_instance.llm.provider_name}")
 
-    server.start()
-    try:
-        while True:
-            time.sleep(86400)
-    except KeyboardInterrupt:
-        server.stop(0)
+    await server.start()
+
+    # Keep the server running
+    await server.wait_for_termination()
 
 
 if __name__ == "__main__":
-    serve()
+    try:
+        asyncio.run(serve())
+    except KeyboardInterrupt:
+        pass  # Graceful exit on Ctrl+C
