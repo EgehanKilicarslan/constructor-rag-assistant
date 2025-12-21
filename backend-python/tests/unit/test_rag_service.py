@@ -17,14 +17,23 @@ async def test_chat_success_scenario():
 
     # Create a fake (Mock) LLM Provider
     mock_llm = Mock()
-
     mock_llm.generate_response = AsyncMock(return_value="Hello from Python Test!")
+    type(mock_llm).provider_name = PropertyMock(return_value="dummy")
 
-    # Mock the async property correctly
-    type(mock_llm).provider_name = PropertyMock(return_value=AsyncMock(return_value="dummy")())
+    # Create a fake Embedding Service
+    mock_embedding_service = Mock()
+    mock_embedding_service.search = Mock(
+        return_value=[
+            {
+                "content": "Constructor University is located in Bremen, Germany.",
+                "metadata": {"filename": "test.pdf", "page": 1},
+                "score": 0.95,
+            }
+        ]
+    )
 
     # Initialize the service
-    service = RagService(llm_provider=mock_llm)
+    service = RagService(llm_provider=mock_llm, embedding_service=mock_embedding_service)
 
     # Prepare a fake gRPC request
     mock_request = Mock()
@@ -51,9 +60,14 @@ async def test_chat_success_scenario():
     # 2. Was the LLM Provider's 'generate_response' method actually called?
     mock_llm.generate_response.assert_called_once()
 
-    # 3. Check arguments
-    args, kwargs = mock_llm.generate_response.call_args
-    assert kwargs["query"] == "Where is Constructor University?"
+    # 3. Was the embedding service search called?
+    mock_embedding_service.search.assert_called_once_with(
+        "Where is Constructor University?", limit=3
+    )
+
+    # 4. Check that source documents were populated
+    assert len(response.source_documents) == 1
+    assert response.source_documents[0].filename == "test.pdf"
 
 
 @pytest.mark.asyncio
@@ -69,11 +83,13 @@ async def test_chat_error_handling():
     mock_llm = Mock()
     # Side effect exception
     mock_llm.generate_response = AsyncMock(side_effect=Exception("API Connection Error"))
-    type(mock_llm).provider_name = PropertyMock(
-        return_value=AsyncMock(return_value="BrokenProvider")()
-    )
+    type(mock_llm).provider_name = PropertyMock(return_value="BrokenProvider")
 
-    service = RagService(llm_provider=mock_llm)
+    # Create a fake Embedding Service that returns valid search results
+    mock_embedding_service = Mock()
+    mock_embedding_service.search = Mock(return_value=[])
+
+    service = RagService(llm_provider=mock_llm, embedding_service=mock_embedding_service)
     mock_request = Mock(query="Error test", session_id="1")
     mock_context = Mock()
 
@@ -87,4 +103,5 @@ async def test_chat_error_handling():
     # 3. ASSERT
     # ---------------------------------------------------------
 
-    assert response.answer == "An error occurred."
+    assert response.answer == "Sorry, an error occurred while generating the response."
+    assert response.processing_time_ms == 0.0
