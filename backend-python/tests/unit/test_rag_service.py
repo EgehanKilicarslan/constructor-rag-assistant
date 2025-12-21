@@ -1,9 +1,11 @@
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, PropertyMock
 
+import pytest
 from app.services.rag_service import RagService
 
 
-def test_chat_success_scenario():
+@pytest.mark.asyncio
+async def test_chat_success_scenario():
     """
     Scenario: User asks a question.
     Expected: Service calls LLM Provider and returns the answer in gRPC format.
@@ -16,13 +18,12 @@ def test_chat_success_scenario():
     # Create a fake (Mock) LLM Provider
     mock_llm = Mock()
 
-    # Set what to return when "generate_response" is called on the LLM
-    mock_llm.generate_response.return_value = "Hello from Python Test!"
+    mock_llm.generate_response = AsyncMock(return_value="Hello from Python Test!")
 
-    # Set what to return when provider name is queried (used for logging)
-    mock_llm.provider_name = "MockGPT-4"
+    # Mock the async property correctly
+    type(mock_llm).provider_name = PropertyMock(return_value=AsyncMock(return_value="dummy")())
 
-    # Initialize the service (passing Mock LLM via Dependency Injection)
+    # Initialize the service
     service = RagService(llm_provider=mock_llm)
 
     # Prepare a fake gRPC request
@@ -30,13 +31,15 @@ def test_chat_success_scenario():
     mock_request.query = "Where is Constructor University?"
     mock_request.session_id = "session_123"
 
+    # Create a mock context
+    mock_context = Mock()
+
     # ---------------------------------------------------------
     # 2. ACT (Action)
     # ---------------------------------------------------------
 
-    # Call the Chat method (context parameter is not important for now, pass None)
-    mock_context = Mock()  # Create a mock context
-    response = service.Chat(request=mock_request, context=mock_context)
+    # Call the Chat method asynchronously
+    response = await service.Chat(request=mock_request, context=mock_context)
 
     # ---------------------------------------------------------
     # 3. ASSERT (Verification)
@@ -48,32 +51,40 @@ def test_chat_success_scenario():
     # 2. Was the LLM Provider's 'generate_response' method actually called?
     mock_llm.generate_response.assert_called_once()
 
-    # 3. Are the parameters passed to LLM correct? (Was the query passed correctly?)
-    # call_args holds the parameters the function was called with.
+    # 3. Check arguments
     args, kwargs = mock_llm.generate_response.call_args
     assert kwargs["query"] == "Where is Constructor University?"
 
-    print("\n✅ [Python] Chat service test passed successfully!")
 
-
-def test_chat_error_handling():
+@pytest.mark.asyncio
+async def test_chat_error_handling():
     """
     Scenario: LLM throws an error (e.g., API is down).
     Expected: Service doesn't crash and returns a generic error message.
     """
 
-    # 1. Prepare a Mock LLM that throws an error
+    # ---------------------------------------------------------
+    # 1. ARRANGE
+    # ---------------------------------------------------------
     mock_llm = Mock()
-    mock_llm.generate_response.side_effect = Exception("API Connection Error")
-    mock_llm.provider_name = "BrokenProvider"
+    # Side effect exception
+    mock_llm.generate_response = AsyncMock(side_effect=Exception("API Connection Error"))
+    type(mock_llm).provider_name = PropertyMock(
+        return_value=AsyncMock(return_value="BrokenProvider")()
+    )
 
     service = RagService(llm_provider=mock_llm)
     mock_request = Mock(query="Error test", session_id="1")
+    mock_context = Mock()
 
-    # 2. Call the method
-    mock_context = Mock()  # Create a mock context
-    response = service.Chat(mock_request, context=mock_context)
+    # ---------------------------------------------------------
+    # 2. ACT
+    # ---------------------------------------------------------
 
-    # 3. Verify
-    # Our service should return "An error occurred." in the try-except block.
+    response = await service.Chat(request=mock_request, context=mock_context)
+
+    # ---------------------------------------------------------
+    # 3. ASSERT
+    # ---------------------------------------------------------
+
     assert response.answer == "An error occurred."
