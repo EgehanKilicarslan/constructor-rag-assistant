@@ -42,9 +42,6 @@ class LocalProvider(LLMProvider):
         messages.append({"role": "user", "content": user_prompt})
 
         try:
-            # Removed invalid method call as AsyncOpenAI does not support models.list()
-            pass
-
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
