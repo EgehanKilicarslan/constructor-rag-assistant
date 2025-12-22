@@ -14,7 +14,7 @@ class EmbeddingService:
 
         print(f"📦 [EmbeddingService] Connecting to Qdrant at {host}:{port}")
         self.client = QdrantClient(host=host, port=port)
-        self.collection_name = "school_docs"
+        self.collection_name = settings.qdrant_collection
 
         self.embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 

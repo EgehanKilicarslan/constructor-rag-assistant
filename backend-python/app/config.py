@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     qdrant_host: str = Field(default="localhost")
     qdrant_port: int = Field(default=6333)
+    qdrant_collection: str = Field(default="school_docs")
 
     embedding_vector_size: int = Field(default=384)
 
