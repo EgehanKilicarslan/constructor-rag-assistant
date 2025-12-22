@@ -31,24 +31,32 @@ class EmbeddingService:
             )
             print("✅ [EmbeddingService] Collection created.")
 
-    def add_documents(self, documents: List[str], metadatas: List[Dict]):
-        """Convert texts to vectors and upload to Qdrant."""
+    def add_documents(self, documents: List[str], metadatas: List[Dict], batch_size: int = 32):
+        """Convert texts to vectors and upload to Qdrant in batches."""
         if not documents:
             return 0
 
-        embeddings = list(self.embedding_model.embed(documents))
+        total_points = 0
 
-        points = [
-            models.PointStruct(
-                id=uuid.uuid4().hex,
-                vector=emb.tolist(),
-                payload={"page_content": doc, **meta},
-            )
-            for doc, emb, meta in zip(documents, embeddings, metadatas)
-        ]
+        for i in range(0, len(documents), batch_size):
+            batch_docs = documents[i : i + batch_size]
+            batch_meta = metadatas[i : i + batch_size]
 
-        self.client.upsert(collection_name=self.collection_name, points=points)
-        return len(points)
+            embeddings = list(self.embedding_model.embed(batch_docs))
+
+            points = [
+                models.PointStruct(
+                    id=uuid.uuid4().hex,
+                    vector=emb.tolist(),
+                    payload={"page_content": doc, **meta},
+                )
+                for doc, emb, meta in zip(batch_docs, embeddings, batch_meta)
+            ]
+
+            self.client.upsert(collection_name=self.collection_name, points=points)
+            total_points += len(points)
+
+        return total_points
 
     def search(self, query: str, limit: int = 3) -> List[Dict]:
         """Return the most relevant documents for the query."""
