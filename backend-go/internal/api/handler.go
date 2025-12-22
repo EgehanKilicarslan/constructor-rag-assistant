@@ -40,7 +40,7 @@ func (h *Handler) ChatHandler(c *gin.Context) {
 		SessionId: reqBody.SessionID,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	stream, err := h.ragClient.Service.Chat(ctx, grpcReq)
@@ -56,23 +56,36 @@ func (h *Handler) ChatHandler(c *gin.Context) {
 	c.Writer.Header().Set("Transfer-Encoding", "chunked")
 
 	// 3. Stream Responses
-	c.Stream(func(w io.Writer) bool {
-		resp, err := stream.Recv()
-		if err == io.EOF {
-			return false // End of stream
-		}
-		if err != nil {
-			return false // Error occurred
-		}
+	done := make(chan bool)
+	go func() {
+		c.Stream(func(w io.Writer) bool {
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				done <- true
+				return false // Stop streaming on EOF
+			}
+			if err != nil {
+				done <- false
+				return false // Stop streaming on error
+			}
 
-		c.SSEvent("message", gin.H{
-			"answer":  resp.Answer,
-			"sources": resp.SourceDocuments,
-			"time":    resp.ProcessingTimeMs,
+			c.SSEvent("message", gin.H{
+				"answer":  resp.Answer,
+				"sources": resp.SourceDocuments,
+				"time":    resp.ProcessingTimeMs,
+			})
+
+			return true // Continue streaming
 		})
+	}()
 
-		return true // Continue streaming
-	})
+	select {
+	case <-done:
+		return
+	case <-ctx.Done():
+		c.JSON(504, gin.H{"error": "Request timeout"})
+		return
+	}
 }
 
 func (h *Handler) UploadHandler(c *gin.Context) {
