@@ -23,6 +23,8 @@ class Settings(BaseSettings):
 
     embedding_vector_size: int = Field(default=384)
 
+    maximum_file_size: int = Field(default=50 * 1024 * 1024)  # 50 MB
+
     @model_validator(mode="after")
     def validate_provider(self) -> "Settings":
         """Validate and normalize the LLM provider"""

@@ -6,15 +6,20 @@ import grpc
 from pb import rag_service_pb2 as rs
 from pb import rag_service_pb2_grpc as rs_grpc
 
+from app.config import Settings
 from app.services import EmbeddingService
 
 from ..llm import LLMProvider
 
 
 class RagService(rs_grpc.RagServiceServicer):
-    def __init__(self, llm_provider: LLMProvider, embedding_service: EmbeddingService):
+    def __init__(
+        self, settings: Settings, llm_provider: LLMProvider, embedding_service: EmbeddingService
+    ):
         self.llm: LLMProvider = llm_provider
         self.embedding_service: EmbeddingService = embedding_service
+        self.max_file_size = settings.maximum_file_size
+        self.allowed_file_types = {".pdf", ".txt", ".md"}
 
     async def UploadDocument(
         self, request: rs.UploadRequest, context: grpc.aio.ServicerContext

@@ -13,5 +13,5 @@ class Container(containers.DeclarativeContainer):
     embedding_service = providers.Factory(EmbeddingService, settings=config)
 
     rag_service = providers.Factory(
-        RagService, llm_provider=llm_client, embedding_service=embedding_service
+        RagService, settings=config, llm_provider=llm_client, embedding_service=embedding_service
     )
