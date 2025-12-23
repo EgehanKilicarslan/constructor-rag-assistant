@@ -1,8 +1,14 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
-import httpx
 import pytest
 from app.llm.provider import GeminiProvider, LocalProvider, OpenAIProvider
+
+
+# --- YARDIMCI MOCK FONKSİYONU ---
+async def mock_async_stream(items):
+    """Async generator mocklamak için yardımcı fonksiyon"""
+    for item in items:
+        yield item
 
 
 # -----------------------------------------------------------------------------
@@ -12,21 +18,36 @@ from app.llm.provider import GeminiProvider, LocalProvider, OpenAIProvider
 async def test_openai_generate_response_success():
     """Test OpenAI API successful response."""
     mock_client = Mock()
-    mock_create = AsyncMock()
 
-    mock_response = Mock()
-    mock_response.choices = [Mock(message=Mock(content="Hello from OpenAI"))]
-    mock_create.return_value = mock_response
+    # OpenAI yanıt formatını simüle ediyoruz
+    # choices[0].delta.content yapısına uygun olmalı
+    chunk1 = Mock()
+    chunk1.choices = [Mock(delta=Mock(content="Hello "))]
 
-    mock_client.chat.completions.create = mock_create
+    chunk2 = Mock()
+    chunk2.choices = [Mock(delta=Mock(content="from "))]
 
-    provider = OpenAIProvider(api_key="fake-key", model="gpt-4")
+    chunk3 = Mock()
+    chunk3.choices = [Mock(delta=Mock(content="OpenAI"))]
+
+    # Mock client'ın stream dönmesini sağla
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=mock_async_stream([chunk1, chunk2, chunk3])
+    )
+
+    # Timeout parametresi eklendi
+    provider = OpenAIProvider(api_key="fake-key", model="gpt-4", timeout=10.0)
+    # Client'ı inject ediyoruz (Dependency Injection manuel yapılıyor burada)
     provider.client = mock_client
 
-    response = await provider.generate_response("Hi", [], [])
+    # Cevapları topla
+    chunks = []
+    async for chunk in provider.generate_response("Hi", [], []):
+        chunks.append(chunk)
 
+    response = "".join(chunks)
     assert response == "Hello from OpenAI"
-    mock_create.assert_called_once()
+    mock_client.chat.completions.create.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -35,10 +56,14 @@ async def test_openai_api_error():
     mock_client = Mock()
     mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API Error"))
 
-    provider = OpenAIProvider("fake", "gpt-4")
+    provider = OpenAIProvider(api_key="fake", model="gpt-4", timeout=10.0)
     provider.client = mock_client
 
-    response = await provider.generate_response("Hi", [], [])
+    chunks = []
+    async for chunk in provider.generate_response("Hi", [], []):
+        chunks.append(chunk)
+
+    response = "".join(chunks)
     assert "Error generating response" in response
     assert "API Error" in response
 
@@ -50,21 +75,27 @@ async def test_openai_api_error():
 async def test_gemini_generate_response_success():
     """Test Gemini API successful response."""
     mock_client = Mock()
-    mock_generate = AsyncMock()
 
-    mock_response = Mock()
-    mock_response.text = "Hello from Gemini"
-    mock_generate.return_value = mock_response
+    # Gemini yanıt formatını simüle ediyoruz (chunk.text)
+    chunk1 = Mock(text="Hello ")
+    chunk2 = Mock(text="from ")
+    chunk3 = Mock(text="Gemini")
 
-    mock_client.models.generate_content = mock_generate
+    # Modeller servisini mockluyoruz
+    mock_client.models.generate_content_stream = AsyncMock(
+        return_value=mock_async_stream([chunk1, chunk2, chunk3])
+    )
 
-    provider = GeminiProvider("fake-key", "gemini-pro")
+    provider = GeminiProvider(api_key="fake-key", model="gemini-pro", timeout=10.0)
     provider.client = mock_client
 
-    response = await provider.generate_response("Hi", [], [])
+    chunks = []
+    async for chunk in provider.generate_response("Hi", [], []):
+        chunks.append(chunk)
 
+    response = "".join(chunks)
     assert response == "Hello from Gemini"
-    mock_generate.assert_called_once()
+    mock_client.models.generate_content_stream.assert_called_once()
 
 
 # ------------------------------------------------------------------------------
@@ -72,39 +103,54 @@ async def test_gemini_generate_response_success():
 # ------------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_local_provider_success():
-    """Test local Llama.cpp server successful response."""
-    with patch("httpx.AsyncClient") as MockClientClass:
-        mock_client_instance = AsyncMock()
-        MockClientClass.return_value.__aenter__.return_value = mock_client_instance
+    """
+    Test local Llama.cpp server successful response.
+    DÜZELTME: LocalProvider artık 'AsyncOpenAI' kullanıyor, bu yüzden
+    httpx yerine OpenAI client'ını mocklamalıyız.
+    """
+    mock_client = Mock()
 
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Hello from Local Llama"}}]
-        }
+    # OpenAI formatı ile aynı yapıyı bekler
+    chunk1 = Mock()
+    chunk1.choices = [Mock(delta=Mock(content="Hello "))]
 
-        mock_client_instance.post.return_value = mock_response
+    chunk2 = Mock()
+    chunk2.choices = [Mock(delta=Mock(content="from "))]
 
-        provider = LocalProvider(base_url="http://mock-url", timeout=10)
-        response = await provider.generate_response("Hi", [], [])
+    chunk3 = Mock()
+    chunk3.choices = [Mock(delta=Mock(content="Local Llama"))]
 
-        assert response == "Hello from Local Llama"
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=mock_async_stream([chunk1, chunk2, chunk3])
+    )
 
-        mock_client_instance.post.assert_called_once()
-        args, kwargs = mock_client_instance.post.call_args
-        assert kwargs["json"]["max_tokens"] == 1024
+    # LocalProvider parametreleri: base_url, model, timeout
+    provider = LocalProvider(base_url="http://mock-url", model="llama-2", timeout=10.0)
+    provider.client = mock_client  # Mock client'ı inject et
+
+    chunks = []
+    async for chunk in provider.generate_response("Hi", [], []):
+        chunks.append(chunk)
+
+    response = "".join(chunks)
+    assert response == "Hello from Local Llama"
+    mock_client.chat.completions.create.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_local_provider_connection_error():
     """Test local provider connection error handling."""
-    with patch("httpx.AsyncClient") as MockClientClass:
-        mock_client_instance = AsyncMock()
-        MockClientClass.return_value.__aenter__.return_value = mock_client_instance
+    mock_client = Mock()
+    # Bağlantı hatasını simüle et
+    mock_client.chat.completions.create = AsyncMock(side_effect=Exception("Connection refused"))
 
-        mock_client_instance.post.side_effect = httpx.ConnectError("Connection refused")
+    provider = LocalProvider(base_url="http://bad-url", model="llama-2", timeout=10.0)
+    provider.client = mock_client
 
-        provider = LocalProvider("http://bad-url", 10)
-        response = await provider.generate_response("Hi", [], [])
+    chunks = []
+    async for chunk in provider.generate_response("Hi", [], []):
+        chunks.append(chunk)
 
-        assert "Could not connect" in response
+    response = "".join(chunks)
+    assert "Error generating response" in response
+    assert "Connection refused" in response

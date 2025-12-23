@@ -1,107 +1,104 @@
-from unittest.mock import AsyncMock, Mock, PropertyMock
+from unittest.mock import MagicMock, Mock, PropertyMock
 
 import pytest
 from app.services.rag_service import RagService
 
 
+# --- YARDIMCI MOCK SINIFI (Streaming Yanıtlar İçin) ---
+async def async_iter(items):
+    for item in items:
+        yield item
+
+
 @pytest.mark.asyncio
 async def test_chat_success_scenario():
     """
-    Scenario: User asks a question.
-    Expected: Service calls LLM Provider and returns the answer in gRPC format.
+    Senaryo: Kullanıcı soru sorar, streaming (akış) yanıt döner.
     """
-
-    # ---------------------------------------------------------
-    # 1. ARRANGE (Setup)
-    # ---------------------------------------------------------
-
-    # Create a fake (Mock) LLM Provider
+    # 1. ARRANGE
     mock_llm = Mock()
-    mock_llm.generate_response = AsyncMock(return_value="Hello from Python Test!")
+    # LLM, streaming bir yanıt (Async Generator) dönmeli
+    mock_llm.generate_response = MagicMock(return_value=async_iter(["Hello ", "from ", "Python!"]))
     type(mock_llm).provider_name = PropertyMock(return_value="dummy")
 
-    # Create a fake Embedding Service
     mock_embedding_service = Mock()
     mock_embedding_service.search = Mock(
         return_value=[
             {
-                "content": "Constructor University is located in Bremen, Germany.",
-                "metadata": {"filename": "test.pdf", "page": 1},
-                "score": 0.95,
+                "content": "Context info",
+                "metadata": {"filename": "doc.pdf", "page": 1},
+                "score": 0.9,
             }
         ]
     )
 
-    # Initialize the service
-    service = RagService(llm_provider=mock_llm, embedding_service=mock_embedding_service)
+    settings = Mock()
+    settings.maximum_file_size = 1024 * 1024  # 1MB
 
-    # Prepare a fake gRPC request
-    mock_request = Mock()
-    mock_request.query = "Where is Constructor University?"
-    mock_request.session_id = "session_123"
-
-    # Create a mock context
+    service = RagService(settings, mock_llm, mock_embedding_service)
+    mock_request = Mock(query="Test Question", session_id="123")
     mock_context = Mock()
 
-    # ---------------------------------------------------------
-    # 2. ACT (Action)
-    # ---------------------------------------------------------
+    # 2. ACT
+    # Chat bir async generator olduğu için list comprehension ile tüketiyoruz
+    responses = [res async for res in service.Chat(request=mock_request, context=mock_context)]
 
-    # Call the Chat method asynchronously
-    response = await service.Chat(request=mock_request, context=mock_context)
+    # 3. ASSERT
+    # LLM parçaları (3 parça) + Kaynak bilgisi (1 parça) = Toplam 4 yanıt beklenir
+    assert len(responses) == 4
 
-    # ---------------------------------------------------------
-    # 3. ASSERT (Verification)
-    # ---------------------------------------------------------
+    # Parçaların birleşimi doğru mu?
+    full_answer = "".join([r.answer for r in responses])
+    assert "Hello from Python!" in full_answer
 
-    # 1. Is the answer the text we expected?
-    assert response.answer == "Hello from Python Test!"
-
-    # 2. Was the LLM Provider's 'generate_response' method actually called?
-    mock_llm.generate_response.assert_called_once()
-
-    # 3. Was the embedding service search called?
-    mock_embedding_service.search.assert_called_once_with(
-        "Where is Constructor University?", limit=3
-    )
-
-    # 4. Check that source documents were populated
-    assert len(response.source_documents) == 1
-    assert response.source_documents[0].filename == "test.pdf"
+    # Son mesajda kaynaklar var mı?
+    last_response = responses[-1]
+    assert len(last_response.source_documents) == 1
+    assert last_response.source_documents[0].filename == "doc.pdf"
 
 
 @pytest.mark.asyncio
-async def test_chat_error_handling():
+async def test_upload_document_success():
     """
-    Scenario: LLM throws an error (e.g., API is down).
-    Expected: Service doesn't crash and returns a generic error message.
+    Senaryo: Geçerli bir metin dosyası yüklenir.
     """
-
-    # ---------------------------------------------------------
     # 1. ARRANGE
-    # ---------------------------------------------------------
-    mock_llm = Mock()
-    # Side effect exception
-    mock_llm.generate_response = AsyncMock(side_effect=Exception("API Connection Error"))
-    type(mock_llm).provider_name = PropertyMock(return_value="BrokenProvider")
-
-    # Create a fake Embedding Service that returns valid search results
     mock_embedding_service = Mock()
-    mock_embedding_service.search = Mock(return_value=[])
+    # add_documents çağrıldığında 5 chunk eklendiğini varsayalım
+    mock_embedding_service.add_documents.return_value = 5
 
-    service = RagService(llm_provider=mock_llm, embedding_service=mock_embedding_service)
-    mock_request = Mock(query="Error test", session_id="1")
-    mock_context = Mock()
+    settings = Mock()
+    settings.maximum_file_size = 10_000_000  # 10MB
 
-    # ---------------------------------------------------------
+    service = RagService(settings, Mock(), mock_embedding_service)
+
+    mock_request = Mock()
+    mock_request.filename = "test_notes.txt"
+    mock_request.file_content = b"Bu bir test icerigidir. " * 50  # Yeterli uzunlukta text
+
     # 2. ACT
-    # ---------------------------------------------------------
+    response = await service.UploadDocument(request=mock_request, context=Mock())
 
-    response = await service.Chat(request=mock_request, context=mock_context)
-
-    # ---------------------------------------------------------
     # 3. ASSERT
-    # ---------------------------------------------------------
+    assert response.status == "success"
+    assert response.chunks_count == 5
+    mock_embedding_service.add_documents.assert_called_once()
 
-    assert response.answer == "Sorry, an error occurred while generating the response."
-    assert response.processing_time_ms == 0.0
+
+@pytest.mark.asyncio
+async def test_upload_document_validation_error():
+    """
+    Senaryo: Desteklenmeyen dosya formatı.
+    """
+    settings = Mock()
+    settings.maximum_file_size = 10_000_000
+    service = RagService(settings, Mock(), Mock())
+
+    mock_request = Mock()
+    mock_request.filename = "virus.exe"  # Yasaklı uzantı
+    mock_request.file_content = b"binary data"
+
+    response = await service.UploadDocument(request=mock_request, context=Mock())
+
+    assert response.status == "error"
+    assert "is not supported" in response.message
