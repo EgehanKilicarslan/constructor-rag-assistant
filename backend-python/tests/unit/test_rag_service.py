@@ -4,24 +4,52 @@ import pytest
 from app.services.rag_service import RagService
 
 
-# --- YARDIMCI MOCK SINIFI (Streaming Yanıtlar İçin) ---
 async def async_iter(items):
     for item in items:
         yield item
 
 
+@pytest.fixture
+def mock_settings():
+    """Common settings mock for all tests."""
+    settings = Mock()
+    settings.maximum_file_size = 1024 * 1024
+    settings.embedding_chunk_size = 500
+    settings.embedding_chunk_overlap = 50
+    return settings
+
+
+@pytest.fixture
+def mock_llm():
+    """Common LLM mock for all tests."""
+    llm = Mock()
+    llm.generate_response = MagicMock(return_value=async_iter(["Answer"]))
+    type(llm).provider_name = PropertyMock(return_value="dummy")
+    return llm
+
+
+@pytest.fixture
+def mock_embedding_service():
+    """Common embedding service mock for all tests."""
+    service = Mock()
+    service.search = Mock(return_value=[])
+    service.add_documents = Mock(return_value=5)
+    return service
+
+
+@pytest.fixture
+def rag_service(mock_settings, mock_llm, mock_embedding_service):
+    """RAG service instance with mocked dependencies."""
+    return RagService(mock_settings, mock_llm, mock_embedding_service)
+
+
 @pytest.mark.asyncio
-async def test_chat_success_scenario():
+async def test_chat_success_scenario(rag_service, mock_llm, mock_embedding_service):
     """
-    Senaryo: Kullanıcı soru sorar, streaming (akış) yanıt döner.
+    Scenario: The user asks a question, and a streaming response is returned.
     """
     # 1. ARRANGE
-    mock_llm = Mock()
-    # LLM, streaming bir yanıt (Async Generator) dönmeli
     mock_llm.generate_response = MagicMock(return_value=async_iter(["Hello ", "from ", "Python!"]))
-    type(mock_llm).provider_name = PropertyMock(return_value="dummy")
-
-    mock_embedding_service = Mock()
     mock_embedding_service.search = Mock(
         return_value=[
             {
@@ -32,49 +60,37 @@ async def test_chat_success_scenario():
         ]
     )
 
-    settings = Mock()
-    settings.maximum_file_size = 1024 * 1024  # 1MB
-
-    service = RagService(settings, mock_llm, mock_embedding_service)
     mock_request = Mock(query="Test Question", session_id="123")
     mock_context = Mock()
 
     # 2. ACT
-    # Chat bir async generator olduğu için list comprehension ile tüketiyoruz
-    responses = [res async for res in service.Chat(request=mock_request, context=mock_context)]
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=mock_context)]
 
     # 3. ASSERT
-    # LLM parçaları (3 parça) + Kaynak bilgisi (1 parça) = Toplam 4 yanıt beklenir
+    # LLM parts (3 parts) + Source info (1 part) = Total 4 responses expected
     assert len(responses) == 4
 
-    # Parçaların birleşimi doğru mu?
+    # Is the combined answer correct?
     full_answer = "".join([r.answer for r in responses])
     assert "Hello from Python!" in full_answer
 
-    # Son mesajda kaynaklar var mı?
+    # Does the last message contain sources?
     last_response = responses[-1]
     assert len(last_response.source_documents) == 1
     assert last_response.source_documents[0].filename == "doc.pdf"
 
 
 @pytest.mark.asyncio
-async def test_upload_document_success():
+async def test_upload_document_success(mock_settings, mock_embedding_service):
     """
-    Senaryo: Geçerli bir metin dosyası yüklenir.
+    Scenario: A valid text file is uploaded.
     """
     # 1. ARRANGE
-    mock_embedding_service = Mock()
-    # add_documents çağrıldığında 5 chunk eklendiğini varsayalım
-    mock_embedding_service.add_documents.return_value = 5
-
-    settings = Mock()
-    settings.maximum_file_size = 10_000_000  # 10MB
-
-    service = RagService(settings, Mock(), mock_embedding_service)
+    service = RagService(mock_settings, Mock(), mock_embedding_service)
 
     mock_request = Mock()
     mock_request.filename = "test_notes.txt"
-    mock_request.file_content = b"Bu bir test icerigidir. " * 50  # Yeterli uzunlukta text
+    mock_request.file_content = b"This is a test content. " * 50  # Sufficiently long text
 
     # 2. ACT
     response = await service.UploadDocument(request=mock_request, context=Mock())
@@ -86,19 +102,91 @@ async def test_upload_document_success():
 
 
 @pytest.mark.asyncio
-async def test_upload_document_validation_error():
+async def test_upload_document_validation_error(mock_settings):
     """
-    Senaryo: Desteklenmeyen dosya formatı.
+    Scenario: Unsupported file format.
     """
-    settings = Mock()
-    settings.maximum_file_size = 10_000_000
-    service = RagService(settings, Mock(), Mock())
+    service = RagService(mock_settings, Mock(), Mock())
 
     mock_request = Mock()
-    mock_request.filename = "virus.exe"  # Yasaklı uzantı
+    mock_request.filename = "virus.exe"  # Forbidden extension
     mock_request.file_content = b"binary data"
 
     response = await service.UploadDocument(request=mock_request, context=Mock())
 
     assert response.status == "error"
     assert "is not supported" in response.message
+
+
+@pytest.mark.asyncio
+async def test_chat_with_empty_query(rag_service, mock_llm):
+    """Test handling of empty query."""
+    mock_llm.generate_response = MagicMock(return_value=async_iter(["No query provided"]))
+    mock_request = Mock(query="", session_id="123")
+
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=Mock())]
+
+    assert len(responses) > 0
+
+
+@pytest.mark.asyncio
+async def test_chat_with_long_query(rag_service, mock_llm):
+    """Test handling of very long queries."""
+    mock_llm.generate_response = MagicMock(return_value=async_iter(["Response to long query"]))
+    mock_request = Mock(query="x" * 10000, session_id="123")
+
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=Mock())]
+
+    assert len(responses) > 0
+
+
+@pytest.mark.asyncio
+async def test_chat_error_handling(rag_service, mock_llm, mock_embedding_service):
+    """Test error handling during chat."""
+    mock_llm.generate_response = MagicMock(
+        return_value=async_iter(["Error generating response: Test error"])
+    )
+    mock_embedding_service.search = Mock(side_effect=Exception("DB Error"))
+    mock_request = Mock(query="test", session_id="123")
+
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=Mock())]
+
+    assert len(responses) > 0
+    assert any("error" in r.answer.lower() for r in responses)
+
+
+@pytest.mark.asyncio
+async def test_chat_returns_processing_time(rag_service):
+    """Test that processing time is included in response."""
+    mock_request = Mock(query="test", session_id="123")
+
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=Mock())]
+
+    assert responses[-1].processing_time_ms >= 0
+
+
+@pytest.mark.asyncio
+async def test_chat_passes_context_docs_to_llm(rag_service, mock_llm, mock_embedding_service):
+    """Test that context documents are passed to LLM."""
+    mock_embedding_service.search = Mock(
+        return_value=[{"content": "Doc1", "metadata": {}, "score": 0.9}]
+    )
+    mock_request = Mock(query="test", session_id="123")
+
+    await rag_service.Chat(request=mock_request, context=Mock()).__anext__()
+
+    mock_llm.generate_response.assert_called_once()
+    call_args = mock_llm.generate_response.call_args
+    assert len(call_args[1]["context_docs"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_passes_empty_history(rag_service, mock_llm):
+    """Test that empty history is passed to LLM."""
+    mock_request = Mock(query="test", session_id="123")
+
+    await rag_service.Chat(request=mock_request, context=Mock()).__anext__()
+
+    mock_llm.generate_response.assert_called_once()
+    call_args = mock_llm.generate_response.call_args
+    assert call_args[1]["history"] == []

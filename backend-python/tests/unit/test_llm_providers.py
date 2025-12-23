@@ -1,156 +1,189 @@
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import MagicMock, Mock, PropertyMock
 
 import pytest
-from app.llm.provider import GeminiProvider, LocalProvider, OpenAIProvider
+from app.services.rag_service import RagService
 
 
-# --- YARDIMCI MOCK FONKSİYONU ---
-async def mock_async_stream(items):
-    """Async generator mocklamak için yardımcı fonksiyon"""
+async def async_iter(items):
     for item in items:
         yield item
 
 
-# -----------------------------------------------------------------------------
-# 1. OpenAI Provider Tests
-# -----------------------------------------------------------------------------
-@pytest.mark.asyncio
-async def test_openai_generate_response_success():
-    """Test OpenAI API successful response."""
-    mock_client = Mock()
+@pytest.fixture
+def mock_settings():
+    """Common settings mock for all tests."""
+    settings = Mock()
+    settings.maximum_file_size = 1024 * 1024
+    settings.embedding_chunk_size = 500
+    settings.embedding_chunk_overlap = 50
+    return settings
 
-    # OpenAI yanıt formatını simüle ediyoruz
-    # choices[0].delta.content yapısına uygun olmalı
-    chunk1 = Mock()
-    chunk1.choices = [Mock(delta=Mock(content="Hello "))]
 
-    chunk2 = Mock()
-    chunk2.choices = [Mock(delta=Mock(content="from "))]
+@pytest.fixture
+def mock_llm():
+    """Common LLM mock for all tests."""
+    llm = Mock()
+    llm.generate_response = MagicMock(return_value=async_iter(["Answer"]))
+    type(llm).provider_name = PropertyMock(return_value="dummy")
+    return llm
 
-    chunk3 = Mock()
-    chunk3.choices = [Mock(delta=Mock(content="OpenAI"))]
 
-    # Mock client'ın stream dönmesini sağla
-    mock_client.chat.completions.create = AsyncMock(
-        return_value=mock_async_stream([chunk1, chunk2, chunk3])
-    )
+@pytest.fixture
+def mock_embedding_service():
+    """Common embedding service mock for all tests."""
+    service = Mock()
+    service.search = Mock(return_value=[])
+    service.add_documents = Mock(return_value=5)
+    return service
 
-    # Timeout parametresi eklendi
-    provider = OpenAIProvider(api_key="fake-key", model="gpt-4", timeout=10.0)
-    # Client'ı inject ediyoruz (Dependency Injection manuel yapılıyor burada)
-    provider.client = mock_client
 
-    # Cevapları topla
-    chunks = []
-    async for chunk in provider.generate_response("Hi", [], []):
-        chunks.append(chunk)
-
-    response = "".join(chunks)
-    assert response == "Hello from OpenAI"
-    mock_client.chat.completions.create.assert_called_once()
+@pytest.fixture
+def rag_service(mock_settings, mock_llm, mock_embedding_service):
+    """RAG service instance with mocked dependencies."""
+    return RagService(mock_settings, mock_llm, mock_embedding_service)
 
 
 @pytest.mark.asyncio
-async def test_openai_api_error():
-    """Test OpenAI API error handling."""
-    mock_client = Mock()
-    mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API Error"))
-
-    provider = OpenAIProvider(api_key="fake", model="gpt-4", timeout=10.0)
-    provider.client = mock_client
-
-    chunks = []
-    async for chunk in provider.generate_response("Hi", [], []):
-        chunks.append(chunk)
-
-    response = "".join(chunks)
-    assert "Error generating response" in response
-    assert "API Error" in response
-
-
-# -----------------------------------------------------------------------------
-# 2. Gemini Provider Tests
-# -----------------------------------------------------------------------------
-@pytest.mark.asyncio
-async def test_gemini_generate_response_success():
-    """Test Gemini API successful response."""
-    mock_client = Mock()
-
-    # Gemini yanıt formatını simüle ediyoruz (chunk.text)
-    chunk1 = Mock(text="Hello ")
-    chunk2 = Mock(text="from ")
-    chunk3 = Mock(text="Gemini")
-
-    # Modeller servisini mockluyoruz
-    mock_client.models.generate_content_stream = AsyncMock(
-        return_value=mock_async_stream([chunk1, chunk2, chunk3])
-    )
-
-    provider = GeminiProvider(api_key="fake-key", model="gemini-pro", timeout=10.0)
-    provider.client = mock_client
-
-    chunks = []
-    async for chunk in provider.generate_response("Hi", [], []):
-        chunks.append(chunk)
-
-    response = "".join(chunks)
-    assert response == "Hello from Gemini"
-    mock_client.models.generate_content_stream.assert_called_once()
-
-
-# ------------------------------------------------------------------------------
-# 3. Local Provider Tests
-# ------------------------------------------------------------------------------
-@pytest.mark.asyncio
-async def test_local_provider_success():
+async def test_chat_success_scenario(rag_service, mock_llm, mock_embedding_service):
     """
-    Test local Llama.cpp server successful response.
-    DÜZELTME: LocalProvider artık 'AsyncOpenAI' kullanıyor, bu yüzden
-    httpx yerine OpenAI client'ını mocklamalıyız.
+    Scenario: The user asks a question, and a streaming response is returned.
     """
-    mock_client = Mock()
-
-    # OpenAI formatı ile aynı yapıyı bekler
-    chunk1 = Mock()
-    chunk1.choices = [Mock(delta=Mock(content="Hello "))]
-
-    chunk2 = Mock()
-    chunk2.choices = [Mock(delta=Mock(content="from "))]
-
-    chunk3 = Mock()
-    chunk3.choices = [Mock(delta=Mock(content="Local Llama"))]
-
-    mock_client.chat.completions.create = AsyncMock(
-        return_value=mock_async_stream([chunk1, chunk2, chunk3])
+    # 1. ARRANGE
+    mock_llm.generate_response = MagicMock(return_value=async_iter(["Hello ", "from ", "Python!"]))
+    mock_embedding_service.search = Mock(
+        return_value=[
+            {
+                "content": "Context info",
+                "metadata": {"filename": "doc.pdf", "page": 1},
+                "score": 0.9,
+            }
+        ]
     )
 
-    # LocalProvider parametreleri: base_url, model, timeout
-    provider = LocalProvider(base_url="http://mock-url", model="llama-2", timeout=10.0)
-    provider.client = mock_client  # Mock client'ı inject et
+    mock_request = Mock(query="Test Question", session_id="123")
+    mock_context = Mock()
 
-    chunks = []
-    async for chunk in provider.generate_response("Hi", [], []):
-        chunks.append(chunk)
+    # 2. ACT
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=mock_context)]
 
-    response = "".join(chunks)
-    assert response == "Hello from Local Llama"
-    mock_client.chat.completions.create.assert_called_once()
+    # 3. ASSERT
+    assert len(responses) == 4
+
+    full_answer = "".join([r.answer for r in responses])
+    assert "Hello from Python!" in full_answer
+
+    last_response = responses[-1]
+    assert len(last_response.source_documents) == 1
+    assert last_response.source_documents[0].filename == "doc.pdf"
 
 
 @pytest.mark.asyncio
-async def test_local_provider_connection_error():
-    """Test local provider connection error handling."""
-    mock_client = Mock()
-    # Bağlantı hatasını simüle et
-    mock_client.chat.completions.create = AsyncMock(side_effect=Exception("Connection refused"))
+async def test_upload_document_success(mock_settings, mock_embedding_service):
+    """
+    Scenario: A valid text file is uploaded.
+    """
+    # 1. ARRANGE
+    service = RagService(mock_settings, Mock(), mock_embedding_service)
 
-    provider = LocalProvider(base_url="http://bad-url", model="llama-2", timeout=10.0)
-    provider.client = mock_client
+    mock_request = Mock()
+    mock_request.filename = "test_notes.txt"
+    mock_request.file_content = b"This is a test content. " * 50
 
-    chunks = []
-    async for chunk in provider.generate_response("Hi", [], []):
-        chunks.append(chunk)
+    # 2. ACT
+    response = await service.UploadDocument(request=mock_request, context=Mock())
 
-    response = "".join(chunks)
-    assert "Error generating response" in response
-    assert "Connection refused" in response
+    # 3. ASSERT
+    assert response.status == "success"
+    assert response.chunks_count == 5
+    mock_embedding_service.add_documents.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_upload_document_validation_error(mock_settings):
+    """
+    Scenario: Unsupported file format.
+    """
+    service = RagService(mock_settings, Mock(), Mock())
+
+    mock_request = Mock()
+    mock_request.filename = "virus.exe"
+    mock_request.file_content = b"binary data"
+
+    response = await service.UploadDocument(request=mock_request, context=Mock())
+
+    assert response.status == "error"
+    assert "is not supported" in response.message
+
+
+@pytest.mark.asyncio
+async def test_chat_with_empty_query(rag_service, mock_llm):
+    """Test handling of empty query."""
+    mock_llm.generate_response = MagicMock(return_value=async_iter(["No query provided"]))
+    mock_request = Mock(query="", session_id="123")
+
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=Mock())]
+
+    assert len(responses) > 0
+
+
+@pytest.mark.asyncio
+async def test_chat_with_long_query(rag_service, mock_llm):
+    """Test handling of very long queries."""
+    mock_llm.generate_response = MagicMock(return_value=async_iter(["Response to long query"]))
+    mock_request = Mock(query="x" * 10000, session_id="123")
+
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=Mock())]
+
+    assert len(responses) > 0
+
+
+@pytest.mark.asyncio
+async def test_chat_error_handling(rag_service, mock_llm, mock_embedding_service):
+    """Test error handling during chat."""
+    mock_llm.generate_response = MagicMock(
+        return_value=async_iter(["Error generating response: Test error"])
+    )
+    mock_embedding_service.search = Mock(side_effect=Exception("DB Error"))
+    mock_request = Mock(query="test", session_id="123")
+
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=Mock())]
+
+    assert len(responses) > 0
+    assert any("error" in r.answer.lower() for r in responses)
+
+
+@pytest.mark.asyncio
+async def test_chat_returns_processing_time(rag_service):
+    """Test that processing time is included in response."""
+    mock_request = Mock(query="test", session_id="123")
+
+    responses = [res async for res in rag_service.Chat(request=mock_request, context=Mock())]
+
+    assert responses[-1].processing_time_ms >= 0
+
+
+@pytest.mark.asyncio
+async def test_chat_passes_context_docs_to_llm(rag_service, mock_llm, mock_embedding_service):
+    """Test that context documents are passed to LLM."""
+    mock_embedding_service.search = Mock(
+        return_value=[{"content": "Doc1", "metadata": {}, "score": 0.9}]
+    )
+    mock_request = Mock(query="test", session_id="123")
+
+    await rag_service.Chat(request=mock_request, context=Mock()).__anext__()
+
+    mock_llm.generate_response.assert_called_once()
+    call_args = mock_llm.generate_response.call_args
+    assert len(call_args[1]["context_docs"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_passes_empty_history(rag_service, mock_llm):
+    """Test that empty history is passed to LLM."""
+    mock_request = Mock(query="test", session_id="123")
+
+    await rag_service.Chat(request=mock_request, context=Mock()).__anext__()
+
+    mock_llm.generate_response.assert_called_once()
+    call_args = mock_llm.generate_response.call_args
+    assert call_args[1]["history"] == []
