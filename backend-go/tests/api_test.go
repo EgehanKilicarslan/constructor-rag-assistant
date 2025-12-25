@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/EgehanKilicarslan/constructor-rag-assistant/backend-go/internal/api"
+	"github.com/EgehanKilicarslan/constructor-rag-assistant/backend-go/internal/config"
 	"github.com/EgehanKilicarslan/constructor-rag-assistant/backend-go/internal/rag"
 	pb "github.com/EgehanKilicarslan/constructor-rag-assistant/backend-go/pb"
 )
@@ -69,7 +70,12 @@ func init() {
 }
 
 func setupRouter(ragClient *rag.Client) *gin.Engine {
-	handler := api.NewHandler(ragClient)
+	cfg := &config.Config{
+		ApiServicePort: "8080",
+		AIServiceAddr:  "localhost:50051",
+		MaxFileSize:    10 * 1024 * 1024,
+	}
+	handler := api.NewHandler(ragClient, cfg)
 	return api.SetupRouter(handler)
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/EgehanKilicarslan/constructor-rag-assistant/backend-go/internal/config"
 	"github.com/EgehanKilicarslan/constructor-rag-assistant/backend-go/internal/rag"
 	pb "github.com/EgehanKilicarslan/constructor-rag-assistant/backend-go/pb"
 	"github.com/gin-gonic/gin"
@@ -15,11 +16,12 @@ import (
 // Handler handles HTTP requests and forwards them to the RAG service
 type Handler struct {
 	ragClient *rag.Client
+	Config    *config.Config
 }
 
 // NewHandler injects dependencies (Dependency Injection Go Style)
-func NewHandler(ragClient *rag.Client) *Handler {
-	return &Handler{ragClient: ragClient}
+func NewHandler(ragClient *rag.Client, cfg *config.Config) *Handler {
+	return &Handler{ragClient: ragClient, Config: cfg}
 }
 
 // ChatHandler: POST /api/chat
