@@ -1,14 +1,6 @@
 import asyncio
-import os
-import sys
 
 import grpc
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
-sys.path.append(os.path.join(parent_dir, "pb"))
-
 from pb import rag_service_pb2_grpc  # noqa: E402
 
 from app.containers import Container  # noqa: E402
