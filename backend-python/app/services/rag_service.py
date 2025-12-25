@@ -1,7 +1,8 @@
+import asyncio
 import re
 import time
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Dict, List, Tuple
 
 import fitz
 import grpc
@@ -45,62 +46,19 @@ class RagService(rs_grpc.RagServiceServicer):
 
         return True, ""
 
-    async def UploadDocument(
-        self,
-        request_iterator: AsyncGenerator[rs.UploadRequest, None],
-        context: grpc.aio.ServicerContext,
-    ) -> rs.UploadResponse:
-        file_content = bytearray()
-        filename = "unknown"
-        content_type = ""
-        current_size = 0
-
-        print("[RagService] UploadDocument stream started...")
+    def _parse_document_sync(self, content: bytes, filename: str) -> Tuple[List[str], List[Dict]]:
+        """
+        🛑 THIS METHOD CONTAINS CPU-INTENSIVE OPERATIONS (Runs synchronously).
+        This method should be called within 'asyncio.to_thread'.
+        """
+        print(f"[Worker Thread] Parsing file: {filename} ({len(content)} bytes)")
+        text_chunks = []
+        metadatas = []
 
         try:
-            # 1. Stream loop
-            async for request in request_iterator:
-                # A) Is metadata present?
-                if request.HasField("metadata"):
-                    filename = request.metadata.filename
-                    content_type = request.metadata.content_type
-                    print(f"[RagService] Receiving file: {filename} (Type: {content_type})")
-
-                    # Validate filename and type
-                    is_valid, err_msg = self._validate_filename(filename)
-                    if not is_valid:
-                        return rs.UploadResponse(status="error", message=err_msg)
-
-                # B) Is chunk present?
-                elif request.HasField("chunk"):
-                    chunk_data = request.chunk
-                    chunk_len = len(chunk_data)
-
-                    # File size check
-                    if current_size + chunk_len > self.max_file_size:
-                        msg = f"File size limit exceeded ({self.max_file_size} bytes)."
-                        print(f"❌ {msg}")
-                        return rs.UploadResponse(status="error", message=msg)
-
-                    # Accumulate chunk
-                    file_content.extend(chunk_data)
-                    current_size += chunk_len
-
-            # 2. Stream ended, file ready
-            print(f"[RagService] Upload complete. Total size: {current_size} bytes.")
-
-            if current_size == 0:
-                return rs.UploadResponse(status="warning", message="Received empty file.")
-
-            # 3. Convert to bytes
-            final_file_bytes = bytes(file_content)
-
-            text_chunks = []
-            metadatas = []
-
-            # 4. PDF Processing
+            # A) PDF Processing
             if filename.lower().endswith(".pdf"):
-                with fitz.open(stream=final_file_bytes, filetype="pdf") as doc:
+                with fitz.open(stream=content, filetype="pdf") as doc:
                     for i in range(len(doc)):
                         page = doc[i]
                         text = page.get_text()
@@ -111,16 +69,65 @@ class RagService(rs_grpc.RagServiceServicer):
                                 text_chunks.append(chunk)
                                 metadatas.append({"filename": filename, "page": i + 1})
 
-                print(f"[RagService] Extracted {len(text_chunks)} text chunks from PDF.")
+                print(f"[Worker Thread] Extracted {len(text_chunks)} chunks from PDF.")
 
-            # 4. Text/MD Processing
+            # B) Text/MD Processing
             else:
-                text = final_file_bytes.decode("utf-8")
+                text = content.decode("utf-8")
                 file_chunks = self.text_splitter.split_text(text)
                 for chunk in file_chunks:
                     text_chunks.append(chunk)
                     metadatas.append({"filename": filename, "page": 1})
-                print("[RagService] Extracted text from non-PDF document.")
+                print("[Worker Thread] Extracted chunks from text file.")
+
+            return text_chunks, metadatas
+
+        except Exception as e:
+            print(f"❌ Parsing Error: {e}")
+            raise e
+
+    async def UploadDocument(
+        self,
+        request_iterator: AsyncGenerator[rs.UploadRequest, None],
+        context: grpc.aio.ServicerContext,
+    ) -> rs.UploadResponse:
+        file_content = bytearray()
+        filename = "unknown"
+        current_size = 0
+
+        print("[RagService] UploadDocument stream started...")
+
+        try:
+            # 1. Stream Loop (Non-blocking I/O)
+            async for request in request_iterator:
+                # Is Metadata present?
+                if request.HasField("metadata"):
+                    filename = request.metadata.filename
+                    # Validation
+                    is_valid, err_msg = self._validate_filename(filename)
+                    if not is_valid:
+                        return rs.UploadResponse(status="error", message=err_msg)
+
+                # Is Chunk present?
+                elif request.HasField("chunk"):
+                    chunk_len = len(request.chunk)
+
+                    if current_size + chunk_len > self.max_file_size:
+                        msg = f"Limit exceeded ({self.max_file_size} bytes)."
+                        return rs.UploadResponse(status="error", message=msg)
+
+                    file_content.extend(request.chunk)
+                    current_size += chunk_len
+
+            if current_size == 0:
+                return rs.UploadResponse(status="warning", message="Received empty file.")
+
+            # 3. Send CPU-Intensive Task to Thread (Parsing)
+            final_bytes = bytes(file_content)
+
+            text_chunks, metadatas = await asyncio.to_thread(
+                self._parse_document_sync, final_bytes, filename
+            )
 
             if not text_chunks:
                 return rs.UploadResponse(
@@ -129,10 +136,11 @@ class RagService(rs_grpc.RagServiceServicer):
                     message="No text extracted from the document.",
                 )
 
-            # 5. Add to Embedding Service
-            count = self.embedding_service.add_documents(documents=text_chunks, metadatas=metadatas)
+            # 4. Send to Embedding Service (Async IO)
+            count = await self.embedding_service.add_documents(
+                documents=text_chunks, metadatas=metadatas
+            )
 
-            # 6. Return response
             return rs.UploadResponse(
                 status="success",
                 chunks_count=count,
@@ -140,10 +148,7 @@ class RagService(rs_grpc.RagServiceServicer):
             )
 
         except Exception as e:
-            print(f"❌ Upload Processing Error: {e}")
-            import traceback
-
-            traceback.print_exc()
+            print(f"❌ Upload Error: {e}")
             return rs.UploadResponse(status="error", chunks_count=0, message=str(e))
 
     async def Chat(
@@ -153,7 +158,7 @@ class RagService(rs_grpc.RagServiceServicer):
         print(f"[RagService] Question received: {request.query} | Session ID: {request.session_id}")
 
         try:
-            search_results = self.embedding_service.search(request.query, limit=3)
+            search_results = await self.embedding_service.search(request.query, limit=3)
 
             context_docs = [hit["content"] for hit in search_results]
 
