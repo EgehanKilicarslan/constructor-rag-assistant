@@ -138,25 +138,45 @@ class UploadRequest(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
+    METADATA_FIELD_NUMBER: builtins.int
+    CHUNK_FIELD_NUMBER: builtins.int
+    chunk: builtins.bytes
+    """Chunk of file data"""
+    @property
+    def metadata(self) -> Global___UploadMetadata:
+        """Metadata about the file"""
+
+    def __init__(
+        self,
+        *,
+        metadata: Global___UploadMetadata | None = ...,
+        chunk: builtins.bytes = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["chunk", b"chunk", "data", b"data", "metadata", b"metadata"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["chunk", b"chunk", "data", b"data", "metadata", b"metadata"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["data", b"data"]) -> typing.Literal["metadata", "chunk"] | None: ...
+
+Global___UploadRequest: typing_extensions.TypeAlias = UploadRequest
+
+@typing.final
+class UploadMetadata(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
     FILENAME_FIELD_NUMBER: builtins.int
     CONTENT_TYPE_FIELD_NUMBER: builtins.int
-    FILE_CONTENT_FIELD_NUMBER: builtins.int
     filename: builtins.str
-    """Name of the file being uploaded"""
+    """Name of the file"""
     content_type: builtins.str
     """MIME type of the file (e.g., application/pdf)"""
-    file_content: builtins.bytes
-    """Binary content of the file"""
     def __init__(
         self,
         *,
         filename: builtins.str = ...,
         content_type: builtins.str = ...,
-        file_content: builtins.bytes = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["content_type", b"content_type", "file_content", b"file_content", "filename", b"filename"]) -> None: ...
+    def ClearField(self, field_name: typing.Literal["content_type", b"content_type", "filename", b"filename"]) -> None: ...
 
-Global___UploadRequest: typing_extensions.TypeAlias = UploadRequest
+Global___UploadMetadata: typing_extensions.TypeAlias = UploadMetadata
 
 @typing.final
 class UploadResponse(google.protobuf.message.Message):

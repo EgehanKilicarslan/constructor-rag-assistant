@@ -17,7 +17,7 @@ service RagService {
   /// UploadDocument is an RPC that handles document uploads.
   /// It takes an UploadRequest with file details and content,
   /// and returns an UploadResponse indicating the status of the upload.
-  rpc UploadDocument (UploadRequest) returns (UploadResponse);
+  rpc UploadDocument (stream UploadRequest) returns (UploadResponse);
 }
 
 // --------------------------------------------------------
@@ -54,9 +54,15 @@ message Source {
 // Upload Message Definitions
 // --------------------------------------------------------
 message UploadRequest {
-  string filename     = 1; // Name of the file being uploaded
-  string content_type = 2; // MIME type of the file (e.g., application/pdf)
-  bytes  file_content = 3; // Binary content of the file
+  oneof data {
+    UploadMetadata metadata = 1; // Metadata about the file
+    bytes          chunk    = 2; // Chunk of file data
+  }
+}
+
+message UploadMetadata {
+  string filename     = 1; // Name of the file
+  string content_type = 2 ; // MIME type of the file (e.g., application/pdf)
 }
 
 message UploadResponse {

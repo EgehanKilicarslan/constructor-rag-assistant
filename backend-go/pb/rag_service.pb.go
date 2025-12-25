@@ -271,10 +271,12 @@ func (x *Source) GetScore() float32 {
 // Upload Message Definitions
 // --------------------------------------------------------
 type UploadRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`                          // Name of the file being uploaded
-	ContentType   string                 `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"` // MIME type of the file (e.g., application/pdf)
-	FileContent   []byte                 `protobuf:"bytes,3,opt,name=file_content,json=fileContent,proto3" json:"file_content,omitempty"` // Binary content of the file
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Data:
+	//
+	//	*UploadRequest_Metadata
+	//	*UploadRequest_Chunk
+	Data          isUploadRequest_Data `protobuf_oneof:"data"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -309,25 +311,97 @@ func (*UploadRequest) Descriptor() ([]byte, []int) {
 	return file_rag_service_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *UploadRequest) GetFilename() string {
+func (x *UploadRequest) GetData() isUploadRequest_Data {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *UploadRequest) GetMetadata() *UploadMetadata {
+	if x != nil {
+		if x, ok := x.Data.(*UploadRequest_Metadata); ok {
+			return x.Metadata
+		}
+	}
+	return nil
+}
+
+func (x *UploadRequest) GetChunk() []byte {
+	if x != nil {
+		if x, ok := x.Data.(*UploadRequest_Chunk); ok {
+			return x.Chunk
+		}
+	}
+	return nil
+}
+
+type isUploadRequest_Data interface {
+	isUploadRequest_Data()
+}
+
+type UploadRequest_Metadata struct {
+	Metadata *UploadMetadata `protobuf:"bytes,1,opt,name=metadata,proto3,oneof"` // Metadata about the file
+}
+
+type UploadRequest_Chunk struct {
+	Chunk []byte `protobuf:"bytes,2,opt,name=chunk,proto3,oneof"` // Chunk of file data
+}
+
+func (*UploadRequest_Metadata) isUploadRequest_Data() {}
+
+func (*UploadRequest_Chunk) isUploadRequest_Data() {}
+
+type UploadMetadata struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`                          // Name of the file
+	ContentType   string                 `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"` // MIME type of the file (e.g., application/pdf)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadMetadata) Reset() {
+	*x = UploadMetadata{}
+	mi := &file_rag_service_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadMetadata) ProtoMessage() {}
+
+func (x *UploadMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_rag_service_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadMetadata.ProtoReflect.Descriptor instead.
+func (*UploadMetadata) Descriptor() ([]byte, []int) {
+	return file_rag_service_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *UploadMetadata) GetFilename() string {
 	if x != nil {
 		return x.Filename
 	}
 	return ""
 }
 
-func (x *UploadRequest) GetContentType() string {
+func (x *UploadMetadata) GetContentType() string {
 	if x != nil {
 		return x.ContentType
 	}
 	return ""
-}
-
-func (x *UploadRequest) GetFileContent() []byte {
-	if x != nil {
-		return x.FileContent
-	}
-	return nil
 }
 
 type UploadResponse struct {
@@ -341,7 +415,7 @@ type UploadResponse struct {
 
 func (x *UploadResponse) Reset() {
 	*x = UploadResponse{}
-	mi := &file_rag_service_proto_msgTypes[5]
+	mi := &file_rag_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -353,7 +427,7 @@ func (x *UploadResponse) String() string {
 func (*UploadResponse) ProtoMessage() {}
 
 func (x *UploadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_service_proto_msgTypes[5]
+	mi := &file_rag_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -366,7 +440,7 @@ func (x *UploadResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadResponse.ProtoReflect.Descriptor instead.
 func (*UploadResponse) Descriptor() ([]byte, []int) {
-	return file_rag_service_proto_rawDescGZIP(), []int{5}
+	return file_rag_service_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *UploadResponse) GetStatus() string {
@@ -413,19 +487,22 @@ const file_rag_service_proto_rawDesc = "" +
 	"\vpage_number\x18\x02 \x01(\x05R\n" +
 	"pageNumber\x12\x18\n" +
 	"\asnippet\x18\x03 \x01(\tR\asnippet\x12\x14\n" +
-	"\x05score\x18\x04 \x01(\x02R\x05score\"q\n" +
-	"\rUploadRequest\x12\x1a\n" +
+	"\x05score\x18\x04 \x01(\x02R\x05score\"b\n" +
+	"\rUploadRequest\x121\n" +
+	"\bmetadata\x18\x01 \x01(\v2\x13.rag.UploadMetadataH\x00R\bmetadata\x12\x16\n" +
+	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunkB\x06\n" +
+	"\x04data\"O\n" +
+	"\x0eUploadMetadata\x12\x1a\n" +
 	"\bfilename\x18\x01 \x01(\tR\bfilename\x12!\n" +
-	"\fcontent_type\x18\x02 \x01(\tR\vcontentType\x12!\n" +
-	"\ffile_content\x18\x03 \x01(\fR\vfileContent\"e\n" +
+	"\fcontent_type\x18\x02 \x01(\tR\vcontentType\"e\n" +
 	"\x0eUploadResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12!\n" +
 	"\fchunks_count\x18\x02 \x01(\x05R\vchunksCount\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage2v\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage2x\n" +
 	"\n" +
 	"RagService\x12-\n" +
-	"\x04Chat\x12\x10.rag.ChatRequest\x1a\x11.rag.ChatResponse0\x01\x129\n" +
-	"\x0eUploadDocument\x12\x12.rag.UploadRequest\x1a\x13.rag.UploadResponseB\x06Z\x04./pbb\x06proto3"
+	"\x04Chat\x12\x10.rag.ChatRequest\x1a\x11.rag.ChatResponse0\x01\x12;\n" +
+	"\x0eUploadDocument\x12\x12.rag.UploadRequest\x1a\x13.rag.UploadResponse(\x01B\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_rag_service_proto_rawDescOnce sync.Once
@@ -439,27 +516,29 @@ func file_rag_service_proto_rawDescGZIP() []byte {
 	return file_rag_service_proto_rawDescData
 }
 
-var file_rag_service_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_rag_service_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_rag_service_proto_goTypes = []any{
 	(*ChatRequest)(nil),    // 0: rag.ChatRequest
 	(*QueryConfig)(nil),    // 1: rag.QueryConfig
 	(*ChatResponse)(nil),   // 2: rag.ChatResponse
 	(*Source)(nil),         // 3: rag.Source
 	(*UploadRequest)(nil),  // 4: rag.UploadRequest
-	(*UploadResponse)(nil), // 5: rag.UploadResponse
+	(*UploadMetadata)(nil), // 5: rag.UploadMetadata
+	(*UploadResponse)(nil), // 6: rag.UploadResponse
 }
 var file_rag_service_proto_depIdxs = []int32{
 	1, // 0: rag.ChatRequest.config:type_name -> rag.QueryConfig
 	3, // 1: rag.ChatResponse.source_documents:type_name -> rag.Source
-	0, // 2: rag.RagService.Chat:input_type -> rag.ChatRequest
-	4, // 3: rag.RagService.UploadDocument:input_type -> rag.UploadRequest
-	2, // 4: rag.RagService.Chat:output_type -> rag.ChatResponse
-	5, // 5: rag.RagService.UploadDocument:output_type -> rag.UploadResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	5, // 2: rag.UploadRequest.metadata:type_name -> rag.UploadMetadata
+	0, // 3: rag.RagService.Chat:input_type -> rag.ChatRequest
+	4, // 4: rag.RagService.UploadDocument:input_type -> rag.UploadRequest
+	2, // 5: rag.RagService.Chat:output_type -> rag.ChatResponse
+	6, // 6: rag.RagService.UploadDocument:output_type -> rag.UploadResponse
+	5, // [5:7] is the sub-list for method output_type
+	3, // [3:5] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_rag_service_proto_init() }
@@ -467,13 +546,17 @@ func file_rag_service_proto_init() {
 	if File_rag_service_proto != nil {
 		return
 	}
+	file_rag_service_proto_msgTypes[4].OneofWrappers = []any{
+		(*UploadRequest_Metadata)(nil),
+		(*UploadRequest_Chunk)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_rag_service_proto_rawDesc), len(file_rag_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

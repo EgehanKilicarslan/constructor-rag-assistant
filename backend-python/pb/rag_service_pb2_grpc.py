@@ -45,7 +45,7 @@ class RagServiceStub(object):
             response_deserializer=rag__service__pb2.ChatResponse.FromString,
             _registered_method=True,
         )
-        self.UploadDocument = channel.unary_unary(
+        self.UploadDocument = channel.stream_unary(
             "/rag.RagService/UploadDocument",
             request_serializer=rag__service__pb2.UploadRequest.SerializeToString,
             response_deserializer=rag__service__pb2.UploadResponse.FromString,
@@ -68,7 +68,7 @@ class RagServiceServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def UploadDocument(self, request, context):
+    def UploadDocument(self, request_iterator, context):
         """/ UploadDocument is an RPC that handles document uploads.
         / It takes an UploadRequest with file details and content,
         / and returns an UploadResponse indicating the status of the upload.
@@ -85,7 +85,7 @@ def add_RagServiceServicer_to_server(servicer, server):
             request_deserializer=rag__service__pb2.ChatRequest.FromString,
             response_serializer=rag__service__pb2.ChatResponse.SerializeToString,
         ),
-        "UploadDocument": grpc.unary_unary_rpc_method_handler(
+        "UploadDocument": grpc.stream_unary_rpc_method_handler(
             servicer.UploadDocument,
             request_deserializer=rag__service__pb2.UploadRequest.FromString,
             response_serializer=rag__service__pb2.UploadResponse.SerializeToString,
@@ -135,7 +135,7 @@ class RagService(object):
 
     @staticmethod
     def UploadDocument(
-        request,
+        request_iterator,
         target,
         options=(),
         channel_credentials=None,
@@ -146,8 +146,8 @@ class RagService(object):
         timeout=None,
         metadata=None,
     ):
-        return grpc.experimental.unary_unary(
-            request,
+        return grpc.experimental.stream_unary(
+            request_iterator,
             target,
             "/rag.RagService/UploadDocument",
             rag__service__pb2.UploadRequest.SerializeToString,

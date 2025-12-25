@@ -43,15 +43,15 @@ _RagServiceChatType = typing_extensions.TypeVar(
 
 _RagServiceUploadDocumentType = typing_extensions.TypeVar(
     '_RagServiceUploadDocumentType',
-    grpc.UnaryUnaryMultiCallable[
+    grpc.StreamUnaryMultiCallable[
         rag_service_pb2.UploadRequest,
         rag_service_pb2.UploadResponse,
     ],
-    grpc.aio.UnaryUnaryMultiCallable[
+    grpc.aio.StreamUnaryMultiCallable[
         rag_service_pb2.UploadRequest,
         rag_service_pb2.UploadResponse,
     ],
-    default=grpc.UnaryUnaryMultiCallable[
+    default=grpc.StreamUnaryMultiCallable[
         rag_service_pb2.UploadRequest,
         rag_service_pb2.UploadResponse,
     ],
@@ -69,7 +69,7 @@ class RagServiceStub(typing.Generic[_RagServiceChatType, _RagServiceUploadDocume
             rag_service_pb2.ChatRequest,
             rag_service_pb2.ChatResponse,
         ],
-        grpc.UnaryUnaryMultiCallable[
+        grpc.StreamUnaryMultiCallable[
             rag_service_pb2.UploadRequest,
             rag_service_pb2.UploadResponse,
         ],
@@ -81,7 +81,7 @@ class RagServiceStub(typing.Generic[_RagServiceChatType, _RagServiceUploadDocume
             rag_service_pb2.ChatRequest,
             rag_service_pb2.ChatResponse,
         ],
-        grpc.aio.UnaryUnaryMultiCallable[
+        grpc.aio.StreamUnaryMultiCallable[
             rag_service_pb2.UploadRequest,
             rag_service_pb2.UploadResponse,
         ],
@@ -104,7 +104,7 @@ RagServiceAsyncStub: typing_extensions.TypeAlias = RagServiceStub[
         rag_service_pb2.ChatRequest,
         rag_service_pb2.ChatResponse,
     ],
-    grpc.aio.UnaryUnaryMultiCallable[
+    grpc.aio.StreamUnaryMultiCallable[
         rag_service_pb2.UploadRequest,
         rag_service_pb2.UploadResponse,
     ],
@@ -130,7 +130,7 @@ class RagServiceServicer(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def UploadDocument(
         self,
-        request: rag_service_pb2.UploadRequest,
+        request_iterator: _MaybeAsyncIterator[rag_service_pb2.UploadRequest],
         context: _ServicerContext,
     ) -> typing.Union[rag_service_pb2.UploadResponse, collections.abc.Awaitable[rag_service_pb2.UploadResponse]]:
         """/ UploadDocument is an RPC that handles document uploads.
